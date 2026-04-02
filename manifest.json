@@ -1,0 +1,9 @@
+{
+  "id": "lingonest",
+  "name": "LingoNest",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.12",
+  "description": "Turn language-learning chat into saved study notes and contextual review inside Obsidian.",
+  "author": "lidongzh",
+  "isDesktopOnly": true
+}

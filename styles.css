@@ -1,0 +1,844 @@
+.lingonest-view {
+  --lingonest-surface: color-mix(in srgb, var(--background-primary) 88%, var(--background-secondary) 12%);
+  --lingonest-surface-soft: color-mix(in srgb, var(--background-primary) 72%, var(--background-secondary) 28%);
+  --lingonest-surface-strong: color-mix(in srgb, var(--background-primary) 94%, black 6%);
+  --lingonest-stroke: color-mix(in srgb, var(--background-modifier-border) 82%, transparent);
+  --lingonest-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--interactive-accent) 8%, transparent), transparent 32%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background-secondary) 32%, var(--background-primary)) 0%, var(--background-primary) 22%);
+}
+
+.lingonest-chat-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, var(--lingonest-sidebar-width, 280px)) 14px minmax(0, 1fr);
+  height: 100%;
+  padding: 20px 22px calc(6px + var(--status-bar-height, 28px));
+  box-sizing: border-box;
+  align-items: stretch;
+}
+
+.lingonest-thread-sidebar {
+  min-width: 0;
+  padding: 14px;
+  padding-right: 16px;
+  padding-bottom: 10px;
+  border: 1px solid var(--lingonest-stroke);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--lingonest-surface) 94%, transparent);
+  box-shadow: var(--lingonest-shadow);
+  backdrop-filter: blur(8px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.lingonest-thread-divider {
+  position: relative;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.lingonest-thread-divider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--background-modifier-border) 85%, transparent);
+}
+
+.lingonest-thread-divider:hover::before,
+.lingonest-resizing .lingonest-thread-divider::before {
+  width: 3px;
+  background: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+}
+
+.lingonest-sidebar-header,
+.lingonest-pane-header,
+.lingonest-pane-header-actions,
+.lingonest-review-meta,
+.lingonest-composer-actions,
+.lingonest-review-queues,
+.lingonest-review-controls,
+.lingonest-review-grading,
+.lingonest-settings-actions,
+.lingonest-message-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lingonest-thread-list,
+.lingonest-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lingonest-thread-list {
+  min-width: 0;
+}
+
+.lingonest-thread-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  text-align: left;
+  border: 1px solid var(--lingonest-stroke);
+  border-radius: 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary) 8%);
+  color: var(--text-normal);
+  cursor: pointer;
+  box-shadow: 0 3px 14px rgba(15, 23, 42, 0.04);
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.lingonest-thread-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.lingonest-thread-item.is-active,
+.lingonest-review-queues button.is-active {
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.lingonest-thread-title {
+  display: block;
+  width: 100%;
+  color: var(--text-normal);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.28;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lingonest-thread-meta {
+  display: block;
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lingonest-thread-meta,
+.lingonest-provider-badge,
+.lingonest-message-meta,
+.lingonest-capture-note,
+.lingonest-review-type,
+.lingonest-settings-help,
+.lingonest-review-subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.lingonest-chat-content,
+.lingonest-review-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.lingonest-review-layout {
+  padding: 20px 24px calc(24px + var(--status-bar-height, 28px));
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.lingonest-item-browser-layout {
+  gap: 10px;
+  padding-top: 16px;
+}
+
+.lingonest-review-layout > h3 {
+  margin: 0;
+  font-size: clamp(22px, 2.3vw, 28px);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.lingonest-pane-header h3 {
+  margin: 0;
+  font-size: clamp(18px, 1.8vw, 22px);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.lingonest-review-subtitle {
+  margin-top: -6px;
+  max-width: 720px;
+}
+
+.lingonest-shell-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--lingonest-stroke);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--lingonest-surface) 94%, transparent);
+  box-shadow: var(--lingonest-shadow);
+  backdrop-filter: blur(8px);
+}
+
+.lingonest-shell-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lingonest-shell-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lingonest-shell-subtitle {
+  color: var(--text-normal);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.lingonest-section-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 74%, var(--background-primary));
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
+}
+
+.lingonest-section-nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.lingonest-section-nav-button.is-active {
+  background: color-mix(in srgb, var(--background-primary) 94%, transparent);
+  color: var(--text-normal);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.lingonest-review-help {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.lingonest-review-top-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.lingonest-review-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.lingonest-review-main,
+.lingonest-review-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.lingonest-item-browser-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+
+.lingonest-item-browser-layout .lingonest-item-browser-grid {
+  min-height: 0;
+}
+
+.lingonest-item-browser-sidebar,
+.lingonest-item-browser-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.lingonest-item-browser-layout .lingonest-item-browser-sidebar,
+.lingonest-item-browser-layout .lingonest-item-browser-main {
+  height: 100%;
+}
+
+.lingonest-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 8px;
+  padding-bottom: 8px;
+}
+
+.lingonest-message,
+.lingonest-review-card {
+  border: 1px solid var(--lingonest-stroke);
+  border-radius: 18px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary) 4%);
+  box-shadow: var(--lingonest-shadow);
+}
+
+.lingonest-message,
+.lingonest-message *,
+.lingonest-empty-state,
+.lingonest-empty-state *,
+.lingonest-message-body,
+.lingonest-message-body * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.lingonest-message-body {
+  cursor: text;
+}
+
+.lingonest-message-assistant {
+  background: color-mix(in srgb, var(--background-primary) 86%, var(--background-secondary) 14%);
+}
+
+.lingonest-message-user {
+  background: color-mix(in srgb, var(--interactive-accent) 7%, var(--background-primary));
+  padding: 10px 14px;
+  border-radius: 16px;
+}
+
+.lingonest-message-user .lingonest-message-meta {
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.lingonest-message-user .lingonest-message-body {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.lingonest-message-user .markdown-preview-view,
+.lingonest-message-user .markdown-rendered,
+.lingonest-message-user p {
+  margin-block: 0;
+}
+
+.lingonest-capture-note {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lingonest-capture-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.lingonest-capture-actions button {
+  white-space: nowrap;
+}
+
+.lingonest-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  align-self: stretch;
+  margin-top: auto;
+  margin-bottom: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.lingonest-composer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.lingonest-composer-input,
+.lingonest-review-card textarea,
+.lingonest-prompt-textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 86%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary) 8%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.lingonest-composer-input {
+  min-height: 58px;
+  max-height: 136px;
+  padding: 14px 16px;
+  border-radius: 18px;
+}
+
+.lingonest-composer-actions {
+  justify-content: flex-end;
+  align-self: center;
+  flex-wrap: nowrap;
+}
+
+.lingonest-composer-actions button {
+  white-space: nowrap;
+  min-width: 98px;
+  height: 44px;
+  border-radius: 16px;
+}
+
+.lingonest-review-queues {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.lingonest-review-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lingonest-review-meta {
+  flex-wrap: wrap;
+}
+
+.lingonest-review-controls {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.lingonest-review-session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lingonest-review-queue-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid var(--lingonest-stroke);
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary) 8%);
+}
+
+.lingonest-review-queue-label {
+  font-weight: 600;
+}
+
+.lingonest-review-queue-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 72%, var(--background-primary));
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.lingonest-review-queue-button.is-active .lingonest-review-queue-count {
+  background: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-primary));
+  color: var(--text-normal);
+}
+
+.lingonest-review-meta button {
+  margin-left: auto;
+}
+
+.lingonest-review-browser-list,
+.lingonest-review-browser-preview {
+  border: 1px solid var(--lingonest-stroke);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--background-primary) 95%, var(--background-secondary) 5%);
+  box-shadow: var(--lingonest-shadow);
+}
+
+.lingonest-item-browser-list {
+  border: 1px solid var(--lingonest-stroke);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--background-primary) 95%, var(--background-secondary) 5%);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  box-shadow: var(--lingonest-shadow);
+}
+
+.lingonest-item-browser-layout .lingonest-item-browser-list {
+  height: 100%;
+}
+
+.lingonest-review-browser-list {
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.lingonest-review-browser-letter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 8px 0 6px;
+  padding: 4px 2px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lingonest-review-browser-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.lingonest-review-browser-item:hover {
+  background: color-mix(in srgb, var(--background-secondary) 70%, var(--background-primary));
+}
+
+.lingonest-review-browser-item.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  outline: 1px solid color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+}
+
+.lingonest-review-browser-term {
+  font-weight: 600;
+}
+
+.lingonest-review-browser-snippet {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.lingonest-item-browser-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 11px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    transform 120ms ease,
+    outline-color 120ms ease;
+}
+
+.lingonest-item-browser-item:hover {
+  background: color-mix(in srgb, var(--background-secondary) 70%, var(--background-primary));
+  transform: translateY(-1px);
+}
+
+.lingonest-item-browser-item.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  outline: 1px solid color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+}
+
+.lingonest-item-browser-term {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.lingonest-item-browser-snippet {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.lingonest-review-browser-preview {
+  padding: 16px;
+}
+
+.lingonest-review-browser-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.lingonest-review-preview-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid var(--lingonest-stroke);
+  background: color-mix(in srgb, var(--background-secondary) 68%, var(--background-primary));
+}
+
+.lingonest-review-preview-button:hover {
+  background: color-mix(in srgb, var(--background-secondary) 86%, var(--background-primary));
+}
+
+.lingonest-review-preview-button.is-danger {
+  background: color-mix(in srgb, var(--text-error) 8%, var(--background-primary));
+  border-color: color-mix(in srgb, var(--text-error) 30%, var(--background-modifier-border));
+  color: var(--text-normal);
+}
+
+.lingonest-review-preview-button.is-danger:hover {
+  background: color-mix(in srgb, var(--text-error) 14%, var(--background-primary));
+}
+
+.lingonest-item-browser-response {
+  margin-top: 0;
+}
+
+.lingonest-review-cloze-sentence {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-secondary) 82%, var(--background-primary));
+  line-height: 1.6;
+  font-size: 16px;
+}
+
+.lingonest-review-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.lingonest-review-choices button {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+}
+
+.lingonest-review-choices button.is-active {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+}
+
+.lingonest-review-user-answer {
+  color: var(--text-muted);
+}
+
+.lingonest-review-grading {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.lingonest-review-grade-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  text-align: left;
+  border: 1px solid var(--lingonest-stroke);
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary) 8%);
+}
+
+.lingonest-review-grade-title {
+  font-weight: 600;
+}
+
+.lingonest-review-grade-desc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 72%, var(--background-primary));
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.lingonest-pane-header {
+  padding: 6px 2px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
+}
+
+.lingonest-pane-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.lingonest-sidebar-header h3 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.lingonest-empty-state {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary));
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lingonest-provider-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--lingonest-stroke);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 74%, var(--background-primary));
+}
+
+.lingonest-view button:not(.clickable-icon):not(.lingonest-section-nav-button) {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 86%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary) 6%);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.lingonest-view button:not(.clickable-icon):not(.lingonest-section-nav-button):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+.lingonest-composer-actions button,
+.lingonest-capture-actions button:last-child {
+  border-color: color-mix(in srgb, var(--interactive-accent) 42%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+}
+
+.lingonest-settings-workflow {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.lingonest-model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -6px 0 12px;
+}
+
+.lingonest-model-select {
+  width: 100%;
+  max-width: 420px;
+}
+
+.lingonest-settings-help.is-error {
+  color: var(--text-error);
+}
+
+@media (max-width: 900px) {
+  .lingonest-chat-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .lingonest-review-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lingonest-item-browser-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lingonest-item-browser-layout {
+    padding-top: 14px;
+  }
+
+  .lingonest-thread-sidebar {
+    width: 100%;
+    min-width: 0;
+    padding-right: 14px;
+    padding-bottom: 14px;
+  }
+
+  .lingonest-thread-divider {
+    display: none;
+  }
+
+}

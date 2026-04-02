@@ -1,0 +1,143 @@
+import type {
+  LearningItemIndexEntry,
+  ReviewEvent,
+  ReviewExercise,
+  ReviewGrade,
+  ReviewQueueKind
+} from "../types";
+import { getActivePromptProfile } from "../prompts";
+import type { LingoNestPlugin } from "../main";
+import { isDue, nowIso } from "../utils/date";
+import { makeId } from "../utils/strings";
+import { applyReviewGrade, chooseExerciseType } from "./scheduler";
+
+export class ReviewService {
+  private readonly plugin: LingoNestPlugin;
+
+  constructor(plugin: LingoNestPlugin) {
+    this.plugin = plugin;
+  }
+
+  getQueue(kind: ReviewQueueKind): LearningItemIndexEntry[] {
+    const items = Object.values(this.plugin.store.state.items);
+    const recentMistakeIds = new Set(
+      this.plugin.store.state.review.events
+        .filter((event) => event.grade === "again")
+        .filter((event) => Date.now() - new Date(event.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000)
+        .map((event) => event.itemId)
+    );
+
+    switch (kind) {
+      case "due":
+        return items.filter((item) => isDue(item.nextReview));
+      case "new":
+        return items.filter((item) => Date.now() - new Date(item.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000);
+      case "trouble":
+        return items.filter((item) => item.troubleCount > 0).sort((a, b) => b.troubleCount - a.troubleCount);
+      case "recent":
+        return items.filter((item) => recentMistakeIds.has(item.id));
+    }
+  }
+
+  getRecommendedQueue(): ReviewQueueKind {
+    if (this.getQueue("due").length) {
+      return "due";
+    }
+    if (this.getQueue("new").length) {
+      return "new";
+    }
+    if (this.getQueue("trouble").length) {
+      return "trouble";
+    }
+    return "recent";
+  }
+
+  createSession(kind: ReviewQueueKind, limit = 12): LearningItemIndexEntry[] {
+    return [...this.getQueue(kind)].sort((left, right) => this.compareQueueItems(left, right, kind)).slice(0, limit);
+  }
+
+  async buildExerciseForItem(itemId: string): Promise<{ item: LearningItemIndexEntry; exercise: ReviewExercise }> {
+    const item = this.plugin.store.state.items[itemId];
+    if (!item) {
+      throw new Error("Review item no longer exists.");
+    }
+    const mode = chooseExerciseType(item);
+    const exercise = await this.buildExercise(item, mode);
+    return { item, exercise };
+  }
+
+  async gradeExercise(itemId: string, exercise: ReviewExercise, grade: ReviewGrade): Promise<void> {
+    const current = this.plugin.store.state.items[itemId];
+    if (!current) {
+      throw new Error("Review item no longer exists.");
+    }
+
+    const updated = applyReviewGrade(current, grade, exercise.type);
+    const event: ReviewEvent = {
+      id: makeId("review"),
+      itemId,
+      createdAt: nowIso(),
+      grade,
+      exerciseType: exercise.type,
+      prompt: exercise.prompt,
+      expectedAnswer: exercise.expectedAnswer
+    };
+
+    await this.plugin.store.updateState((state) => {
+      state.items[itemId] = updated;
+      state.review.events.unshift(event);
+      state.review.events = state.review.events.slice(0, 500);
+    });
+
+    await this.plugin.itemStorage.syncItemNote(updated);
+    this.plugin.notifyStateChanged();
+  }
+
+  private async buildExercise(
+    item: LearningItemIndexEntry,
+    mode: ReviewExercise["type"]
+  ): Promise<ReviewExercise> {
+    const profile = getActivePromptProfile(
+      this.plugin.store.settings.prompts.profiles,
+      "review",
+      this.plugin.store.settings.prompts.activeProfileIds.review
+    );
+    const provider = this.plugin.getProvider();
+    try {
+      return await provider.generateReviewExercise(item, mode, { systemPrompt: profile.systemPrompt });
+    } catch {
+      return {
+        type: "standard",
+        prompt: `Explain or translate "${item.term}".`,
+        expectedAnswer: item.naturalTranslation || item.meaning,
+        hints: [item.chineseMeaning, item.pronunciation, item.nuance].filter(Boolean),
+        clozeSentence: null,
+        choices: [],
+        explanation: item.nuance || item.grammarNotes || ""
+      };
+    }
+  }
+
+  private compareQueueItems(
+    left: LearningItemIndexEntry,
+    right: LearningItemIndexEntry,
+    kind: ReviewQueueKind
+  ): number {
+    switch (kind) {
+      case "due":
+        return compareIso(left.nextReview, right.nextReview) || left.reviewStep - right.reviewStep;
+      case "new":
+        return compareIso(left.createdAt, right.createdAt);
+      case "trouble":
+        return right.troubleCount - left.troubleCount || compareIso(left.nextReview, right.nextReview);
+      case "recent":
+        return compareIso(left.updatedAt, right.updatedAt);
+    }
+  }
+}
+
+function compareIso(left: string | null, right: string | null): number {
+  const leftValue = left ? new Date(left).getTime() : 0;
+  const rightValue = right ? new Date(right).getTime() : 0;
+  return leftValue - rightValue;
+}
