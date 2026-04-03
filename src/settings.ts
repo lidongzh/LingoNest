@@ -154,6 +154,28 @@ export class LingoNestSettingTab extends PluginSettingTab {
         });
       });
 
+    new Setting(containerEl)
+      .setName("UI font size")
+      .setDesc("Scales only LingoNest. 14 is the default size.")
+      .addText((text) => {
+        text.inputEl.type = "number";
+        text.inputEl.min = "11";
+        text.inputEl.max = "22";
+        text.inputEl.step = "1";
+        text.setValue(String(this.plugin.store.settings.uiFontSize));
+        text.onChange(async (value) => {
+          const parsed = Number(value);
+          if (Number.isNaN(parsed)) {
+            return;
+          }
+          const clamped = Math.max(11, Math.min(22, Math.round(parsed)));
+          await this.plugin.store.updateSettings((settings) => {
+            settings.uiFontSize = clamped;
+          });
+          this.plugin.notifyStateChanged();
+        });
+      });
+
     containerEl.createEl("h3", { text: "Prompt Profiles" });
     this.renderWorkflowEditor(containerEl, "chat");
     this.renderWorkflowEditor(containerEl, "capture");

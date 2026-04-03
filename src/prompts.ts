@@ -4,6 +4,7 @@ import type {
   LearningItem,
   PromptProfile,
   PromptWorkflow,
+  StructuredRequestKind,
   StructuredChatResponse,
   ThreadSummaryContext,
   ThreadSummaryItem,
@@ -27,6 +28,7 @@ Answer language questions directly and clearly. When relevant, include:
 - one short Chinese meaning
 - pronunciation
 - part of speech
+- countability for nouns
 - literal translation if it helps
 - natural translation
 - example sentences
@@ -103,6 +105,7 @@ Rules:
 - For "standard", make it a flashcard-style recall prompt.
 - For "cloze", return exactly one sentence with one blank written as "____".
 - For "cloze", return 4 candidate words or phrases in "choices", including the correct answer.
+- For "cloze", the learner will see the choices as a candidate bank but type the final answer.
 - Cloze distractors must be plausible and similar in register/part of speech.
 - If the saved item is a contrast item, focus on choosing or explaining the distinction between the contrasted expressions.
 - If the saved item is a grammar-rule or correction-pattern item, focus on applying the rule naturally, not dictionary definition recall.
@@ -221,18 +224,27 @@ ${userMessage}
 Explanation language: ${explanationLanguage}
 Desired explanation style: English-first with one short Chinese meaning.
 
-Return JSON only with this exact shape:
-{
-  "itemLabel": string,
-  "primaryExpression": string,
-  "answerMarkdown": string,
-  "relatedExpressions": string[],
-  "sourceLanguage": string,
-  "targetLanguage": string,
-  "itemType": "word" | "phrase" | "expression" | "contrast" | "grammar-rule" | "correction-pattern" | "register-note" | "usage-note"
-}
+Return only this tagged format, with the same uppercase field names and in the same order:
+REQUEST_KIND: translation | lookup | contrast | grammar | correction | usage | other
+ITEM_LABEL: <short display label>
+PRIMARY_EXPRESSION: <canonical saved term or phrase>
+SOURCE_LANGUAGE: <language>
+TARGET_LANGUAGE: <language>
+ITEM_TYPE: word | phrase | expression | contrast | grammar-rule | correction-pattern | register-note | usage-note
+RELATED_EXPRESSIONS: <expr 1 | expr 2 | expr 3>
+
+ANSWER:
+<natural tutor response shown to the user>
 
 Rules:
+- "requestKind" should classify the user's request, not the final item type.
+- Use "translation" when the user is asking how to say something in another language.
+- Use "lookup" for plain meaning/definition questions about one word or phrase.
+- Use "contrast" for difference/compare questions.
+- Use "grammar" for grammar-rule questions.
+- Use "correction" when the main point is fixing a mistake or typo.
+- Use "usage" for naturalness/register/appropriateness questions.
+- Use "other" only if none of the above fit.
 - "itemLabel" is the short display label the app should show in the sidebar and header.
 - "primaryExpression" is the canonical term or phrase to save and dedupe on.
 - For translation questions like "漏勺英语怎么说", set both itemLabel and primaryExpression to the target-language answer, not the source-language query.
@@ -240,7 +252,23 @@ Rules:
 - For contrast questions, use a label like "annihilate vs obliterate".
 - For typo-correction questions, set itemLabel and primaryExpression to the corrected form and include the original typo in "relatedExpressions".
 - "answerMarkdown" should contain only the natural tutor response to show the user.
-- Do not wrap the JSON in code fences.`;
+- "answerMarkdown" must be a real answer, never just "..." or a placeholder.
+- For direct lookup or translation questions, start "answerMarkdown" with the resolved term or phrase, then include a short Chinese meaning, a concise English explanation, and one example or usage note when useful.
+- If the resolved item is a single word, start "answerMarkdown" with exactly this style on the first line: <resolved term> /.../ <part-of-speech abbreviations>
+- Use compact part-of-speech abbreviations on that first line such as n., v., vt., vi., adj., adv., prep., pron., conj., interj., phr.
+- Example: register /ˈrɛdʒɪstər/ n., vt., vi.
+- For one-word lookup, translation, or typo-correction requests, always include IPA inline on that first line even if you also include a simpler respelling later.
+- If a single word has multiple parts of speech or clearly distinct senses by part of speech, organize the explanation into separate labeled sections such as "n.", "vt.", "vi.", "adj.", or "adv.".
+- Put each part of speech in its own short section with its own meaning, Chinese gloss, and example when useful.
+- Do not collapse different parts of speech into one blended explanation when separate sections would be clearer.
+- For noun sections, explicitly mark countability as C, U, or C/U when relevant.
+- If different noun senses have different countability, show the countability inside the relevant noun section.
+- If pronunciation differs by part of speech or sense, show the different IPA in the relevant labeled sections instead of forcing one shared IPA for the whole entry.
+- In that case, the first line may still show the main or most common IPA, but each section with a different pronunciation should repeat its own IPA locally.
+- Put one field per line before ANSWER.
+- After "ANSWER:", you may use multiple paragraphs or bullet points naturally.
+- Do not use JSON.
+- Do not wrap the response in code fences.`;
 }
 
 export function buildThreadSummaryUserPrompt(context: ThreadSummaryContext): string {
@@ -316,6 +344,7 @@ export function normalizeStructuredChatResponse(response: Partial<StructuredChat
   const itemLabel = capitalizeLabel((response.itemLabel ?? primaryExpression).trim());
 
   return {
+    requestKind: normalizeStructuredRequestKind(response.requestKind),
     itemLabel: itemLabel || capitalizeLabel(primaryExpression),
     primaryExpression: primaryExpression || itemLabel,
     answerMarkdown: (response.answerMarkdown ?? "").trim(),
@@ -324,6 +353,25 @@ export function normalizeStructuredChatResponse(response: Partial<StructuredChat
     targetLanguage: canonicalizeLanguage((response.targetLanguage ?? "").trim() || "Unknown"),
     itemType: canonicalizeItemType(response.itemType, primaryExpression)
   };
+}
+
+function normalizeStructuredRequestKind(value: unknown): StructuredRequestKind {
+  switch (String(value ?? "").trim().toLowerCase()) {
+    case "translation":
+      return "translation";
+    case "lookup":
+      return "lookup";
+    case "contrast":
+      return "contrast";
+    case "grammar":
+      return "grammar";
+    case "correction":
+      return "correction";
+    case "usage":
+      return "usage";
+    default:
+      return "other";
+  }
 }
 
 export function normalizeThreadSummaryResult(result: Partial<ThreadSummaryResult>): ThreadSummaryResult {

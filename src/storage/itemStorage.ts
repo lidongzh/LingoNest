@@ -104,6 +104,25 @@ export class ItemStorage {
     return itemId ? this.getItem(itemId) : null;
   }
 
+  findReusableItemMatch(expression: string): LearningItemIndexEntry | null {
+    const normalizedQuery = this.buildDedupeKey(expression);
+    if (!normalizedQuery) {
+      return null;
+    }
+
+    const exact = this.findItemByExpression(expression);
+    if (exact) {
+      return exact;
+    }
+
+    const exactLabel = this.getItems().find((item) => this.buildDedupeKey(item.label) === normalizedQuery);
+    if (exactLabel) {
+      return exactLabel;
+    }
+
+    return this.getItems().find((item) => this.hasSafeRelatedAliasMatch(item, normalizedQuery)) ?? null;
+  }
+
   findBestItemMatch(expression: string): LearningItemIndexEntry | null {
     const normalizedQuery = this.buildDedupeKey(expression);
     if (!normalizedQuery) {
@@ -622,6 +641,39 @@ export class ItemStorage {
     }
 
     return null;
+  }
+
+  private hasSafeRelatedAliasMatch(item: LearningItemIndexEntry, normalizedQuery: string): boolean {
+    const normalizedLabel = this.buildDedupeKey(item.label);
+    const matchingAlias = item.relatedExpressions
+      .map((value) => this.buildDedupeKey(value))
+      .find((value) => value === normalizedQuery);
+
+    if (!matchingAlias) {
+      return false;
+    }
+
+    if (/[^\x00-\x7F]/.test(normalizedQuery)) {
+      return true;
+    }
+
+    const similarity = Math.max(
+      this.computeSimilarity(item.dedupeKey, normalizedQuery),
+      normalizedLabel ? this.computeSimilarity(normalizedLabel, normalizedQuery) : 0
+    );
+
+    if (similarity >= 0.84) {
+      return true;
+    }
+
+    return (
+      item.dedupeKey.startsWith(normalizedQuery) ||
+      normalizedQuery.startsWith(item.dedupeKey) ||
+      Boolean(
+        normalizedLabel &&
+          (normalizedLabel.startsWith(normalizedQuery) || normalizedQuery.startsWith(normalizedLabel))
+      )
+    );
   }
 
   private prefixScore(left: string, right: string): number {

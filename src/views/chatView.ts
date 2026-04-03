@@ -20,6 +20,7 @@ export class ChatView extends ItemView {
   private draft = "";
   private selectedThreadId: string | null = null;
   private sending = false;
+  private followLatestWhileSending = false;
   private stateRef: EventRef | null = null;
   private readonly minSidebarWidth = 220;
   private readonly maxSidebarWidth = 520;
@@ -58,6 +59,9 @@ export class ChatView extends ItemView {
 
   private async refresh(): Promise<void> {
     const threads = this.plugin.chatService.getThreads();
+    if (this.sending && this.followLatestWhileSending) {
+      this.selectedThreadId = this.plugin.store.state.latestThreadId ?? threads[0]?.id ?? this.selectedThreadId;
+    }
     if (this.selectedThreadId && !threads.some((thread) => thread.id === this.selectedThreadId)) {
       this.selectedThreadId = threads[0]?.id ?? null;
     }
@@ -68,6 +72,8 @@ export class ChatView extends ItemView {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("lingonest-view");
+    containerEl.style.setProperty("--lingonest-ui-font-size", `${this.plugin.store.settings.uiFontSize}px`);
+    containerEl.style.setProperty("--lingonest-ui-scale", String(this.plugin.store.settings.uiFontSize / 14));
 
     const root = containerEl.createDiv({ cls: "lingonest-chat-layout" });
     root.style.setProperty("--lingonest-sidebar-width", `${this.getSidebarWidth()}px`);
@@ -155,9 +161,10 @@ export class ChatView extends ItemView {
 
   private async renderContent(container: HTMLElement): Promise<void> {
     const thread = this.selectedThreadId ? this.plugin.chatService.getThread(this.selectedThreadId) : null;
+    const streaming = thread ? this.plugin.chatService.getStreamingState(thread.id) : null;
     renderSectionNav(container, this.plugin, "chat");
     const header = container.createDiv({ cls: "lingonest-pane-header" });
-    header.createEl("h3", { text: capitalizeLabel(thread?.title ?? "New Item") });
+    header.createEl("h3", { text: capitalizeLabel(streaming?.label || thread?.title || "New Item") });
     const headerActions = header.createDiv({ cls: "lingonest-pane-header-actions" });
     headerActions.createDiv({
       cls: "lingonest-provider-badge",
@@ -172,14 +179,30 @@ export class ChatView extends ItemView {
       });
     } else {
       for (const message of thread.messages) {
-        const card = messagesEl.createDiv({ cls: `lingonest-message lingonest-message-${message.role}` });
+        const isStreamingAssistant = message.role === "assistant" && streaming?.assistantMessageId === message.id;
+        const card = messagesEl.createDiv({
+          cls: `lingonest-message lingonest-message-${message.role}${isStreamingAssistant ? " is-streaming" : ""}`
+        });
         const meta = card.createDiv({ cls: "lingonest-message-meta" });
         meta.createSpan({ text: message.role === "assistant" ? "Tutor" : "You" });
         meta.createSpan({ text: new Date(message.createdAt).toLocaleString() });
         const body = card.createDiv({ cls: "lingonest-message-body" });
-        await MarkdownRenderer.render(this.app, message.content, body, "", this);
+        if (isStreamingAssistant) {
+          const streamingContent = streaming?.content?.trim() ?? "";
+          if (streamingContent) {
+            await MarkdownRenderer.render(this.app, streamingContent, body, "", this);
+          } else {
+            body.createDiv({
+              cls: "lingonest-streaming-placeholder",
+              text: "Responding…"
+            });
+          }
+          body.createSpan({ cls: "lingonest-streaming-cursor", text: "▍" });
+        } else {
+          await MarkdownRenderer.render(this.app, message.content, body, "", this);
+        }
 
-        if (thread && message.role === "assistant") {
+        if (thread && message.role === "assistant" && !isStreamingAssistant) {
           await this.renderAssistantActions(card, thread.id, message.id, message.captureEventId);
         }
       }
@@ -217,15 +240,18 @@ export class ChatView extends ItemView {
     if (this.sending || !this.draft.trim()) {
       return;
     }
+    const currentThreadId = this.selectedThreadId;
     this.sending = true;
+    this.followLatestWhileSending = true;
     try {
-      const thread = await this.plugin.chatService.sendMessage(this.selectedThreadId, this.draft);
+      const thread = await this.plugin.chatService.sendMessage(currentThreadId, this.draft);
       this.draft = "";
       this.selectedThreadId = thread.id;
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Chat request failed.");
     } finally {
       this.sending = false;
+      this.followLatestWhileSending = false;
       await this.refresh();
     }
   }
@@ -235,7 +261,8 @@ export class ChatView extends ItemView {
   }
 
   private getThreadLabel(thread: Thread): string {
-    const trimmed = thread.title.trim();
+    const streamingLabel = this.plugin.chatService.getStreamingState(thread.id)?.label?.trim() ?? "";
+    const trimmed = (streamingLabel || thread.title).trim();
     if (trimmed) {
       return capitalizeLabel(trimmed);
     }

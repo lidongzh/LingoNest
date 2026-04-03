@@ -3,12 +3,14 @@ import type {
   ReviewEvent,
   ReviewExercise,
   ReviewGrade,
-  ReviewQueueKind
+  ReviewGradingSource,
+  ReviewQueueKind,
+  TypedReviewAssessment
 } from "../types";
 import { getActivePromptProfile } from "../prompts";
 import type { LingoNestPlugin } from "../main";
 import { isDue, nowIso } from "../utils/date";
-import { makeId } from "../utils/strings";
+import { makeId, normalizeExpression } from "../utils/strings";
 import { applyReviewGrade, chooseExerciseType } from "./scheduler";
 
 export class ReviewService {
@@ -66,7 +68,63 @@ export class ReviewService {
     return { item, exercise };
   }
 
-  async gradeExercise(itemId: string, exercise: ReviewExercise, grade: ReviewGrade): Promise<void> {
+  assessTypedClozeAnswer(exercise: ReviewExercise, userAnswer: string): TypedReviewAssessment {
+    const typed = userAnswer.trim();
+    const normalizedTyped = normalizeExpression(typed);
+    const normalizedExpected = normalizeExpression(exercise.expectedAnswer);
+    const wrongChoice = exercise.choices.find((choice) => normalizeExpression(choice) === normalizedTyped);
+
+    if (!normalizedTyped) {
+      return {
+        verdict: "incorrect",
+        grade: "again",
+        matchedAnswer: exercise.expectedAnswer,
+        message: "No answer entered."
+      };
+    }
+
+    if (normalizedTyped === normalizedExpected) {
+      return {
+        verdict: "correct",
+        grade: "good",
+        matchedAnswer: exercise.expectedAnswer,
+        message: "Correct."
+      };
+    }
+
+    if (wrongChoice && normalizeExpression(wrongChoice) !== normalizedExpected) {
+      return {
+        verdict: "incorrect",
+        grade: "again",
+        matchedAnswer: wrongChoice,
+        message: `You entered another candidate: ${wrongChoice}.`
+      };
+    }
+
+    const similarity = this.computeSimilarity(normalizedTyped, normalizedExpected);
+    if (similarity >= 0.84 || normalizedExpected.startsWith(normalizedTyped) || normalizedTyped.startsWith(normalizedExpected)) {
+      return {
+        verdict: "close",
+        grade: "hard",
+        matchedAnswer: exercise.expectedAnswer,
+        message: `Close. The best fit was ${exercise.expectedAnswer}.`
+      };
+    }
+
+    return {
+      verdict: "incorrect",
+      grade: "again",
+      matchedAnswer: exercise.expectedAnswer,
+      message: `Not quite. The best fit was ${exercise.expectedAnswer}.`
+    };
+  }
+
+  async gradeExercise(
+    itemId: string,
+    exercise: ReviewExercise,
+    grade: ReviewGrade,
+    options?: { userAnswer?: string | null; gradingSource?: ReviewGradingSource }
+  ): Promise<void> {
     const current = this.plugin.store.state.items[itemId];
     if (!current) {
       throw new Error("Review item no longer exists.");
@@ -78,6 +136,8 @@ export class ReviewService {
       itemId,
       createdAt: nowIso(),
       grade,
+      gradingSource: options?.gradingSource ?? "manual",
+      userAnswer: options?.userAnswer?.trim() || null,
       exerciseType: exercise.type,
       prompt: exercise.prompt,
       expectedAnswer: exercise.expectedAnswer
@@ -133,6 +193,44 @@ export class ReviewService {
       case "recent":
         return compareIso(left.updatedAt, right.updatedAt);
     }
+  }
+
+  private computeSimilarity(left: string, right: string): number {
+    if (!left || !right) {
+      return 0;
+    }
+    if (left === right) {
+      return 1;
+    }
+
+    const distance = this.levenshtein(left, right);
+    return 1 - distance / Math.max(left.length, right.length);
+  }
+
+  private levenshtein(left: string, right: string): number {
+    const rows = left.length + 1;
+    const cols = right.length + 1;
+    const matrix: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+
+    for (let i = 0; i < rows; i += 1) {
+      matrix[i]![0] = i;
+    }
+    for (let j = 0; j < cols; j += 1) {
+      matrix[0]![j] = j;
+    }
+
+    for (let i = 1; i < rows; i += 1) {
+      for (let j = 1; j < cols; j += 1) {
+        const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+        matrix[i]![j] = Math.min(
+          matrix[i - 1]![j]! + 1,
+          matrix[i]![j - 1]! + 1,
+          matrix[i - 1]![j - 1]! + cost
+        );
+      }
+    }
+
+    return matrix[rows - 1]![cols - 1]!;
   }
 }
 

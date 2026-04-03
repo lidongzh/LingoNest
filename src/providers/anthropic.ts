@@ -45,7 +45,7 @@ export class AnthropicProvider extends AbstractProvider {
         model: options?.model ?? this.model,
         system: systemMessages.join("\n\n"),
         messages: conversation,
-        max_tokens: options?.maxTokens ?? 1400,
+        max_tokens: options?.maxTokens ?? 2400,
         temperature: options?.temperature ?? this.temperature
       })
     });

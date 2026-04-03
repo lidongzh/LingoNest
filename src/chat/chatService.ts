@@ -25,7 +25,6 @@ import {
   uniqueNonEmpty
 } from "../utils/strings";
 import { canonicalizeLanguage } from "../utils/languages";
-import { parseJsonObject } from "../utils/json";
 
 const CASUAL_CHITCHAT_MESSAGES = new Set([
   "what's up",
@@ -60,6 +59,8 @@ const LOOKUP_CUE_PATTERNS = [
 
 export class ChatService {
   private readonly plugin: LingoNestPlugin;
+  private readonly streamingByThread = new Map<string, { assistantMessageId: string; raw: string; content: string; label: string }>();
+  private lastStreamNotifyAt = 0;
 
   constructor(plugin: LingoNestPlugin) {
     this.plugin = plugin;
@@ -76,6 +77,31 @@ export class ChatService {
       return null;
     }
     return this.plugin.store.state.threads.find((thread) => thread.id === threadId) ?? null;
+  }
+
+  getStreamingState(threadId: string | null): { assistantMessageId: string; content: string; label: string } | null {
+    if (!threadId) {
+      return null;
+    }
+    const state = this.streamingByThread.get(threadId);
+    if (!state) {
+      return null;
+    }
+    return {
+      assistantMessageId: state.assistantMessageId,
+      content: state.content,
+      label: state.label
+    };
+  }
+
+  beginStreamingState(threadId: string, assistantMessageId: string, label: string): void {
+    this.streamingByThread.set(threadId, {
+      assistantMessageId,
+      raw: "",
+      content: "",
+      label: label.trim()
+    });
+    this.plugin.notifyStateChanged();
   }
 
   async createThread(title = "New Item", itemId: string | null = null): Promise<Thread> {
@@ -154,13 +180,10 @@ export class ChatService {
       throw new Error("Thread was lost during update.");
     }
 
-    const assistantResponse = await this.generateStructuredAssistantResponse(userMessage.content);
-    const assistantText = assistantResponse.answerMarkdown;
-
     const assistantMessage: ThreadMessage = {
       id: makeId("message"),
       role: "assistant",
-      content: assistantText,
+      content: "",
       createdAt: nowIso(),
       captureEventId: null
     };
@@ -171,6 +194,43 @@ export class ChatService {
         return;
       }
       current.messages = [userMessage, assistantMessage];
+      current.updatedAt = assistantMessage.createdAt;
+      state.latestThreadId = current.id;
+    });
+    this.beginStreamingState(thread.id, assistantMessage.id, activeThread.title || initialTitle);
+
+    let assistantResponse: StructuredChatResponse;
+    try {
+      assistantResponse = await this.generateStructuredAssistantResponse(userMessage.content, {
+        threadId: thread.id,
+        assistantMessageId: assistantMessage.id
+      });
+    } catch (error) {
+      this.clearStreamingState(thread.id, false);
+      await this.plugin.store.updateState((state) => {
+        const current = state.threads.find((candidate) => candidate.id === thread.id);
+        if (!current) {
+          return;
+        }
+        current.messages = [userMessage];
+        current.updatedAt = userMessage.createdAt;
+        state.latestThreadId = current.id;
+      });
+      this.plugin.notifyStateChanged();
+      throw error;
+    }
+    const assistantText = assistantResponse.answerMarkdown;
+    this.clearStreamingState(thread.id, false);
+
+    await this.plugin.store.updateState((state) => {
+      const current = state.threads.find((candidate) => candidate.id === thread.id);
+      if (!current) {
+        return;
+      }
+      const currentAssistantMessage = current.messages.find((candidate) => candidate.id === assistantMessage.id);
+      if (currentAssistantMessage) {
+        currentAssistantMessage.content = assistantText;
+      }
       current.title = assistantResponse.itemLabel || current.title;
       current.updatedAt = assistantMessage.createdAt;
       state.latestThreadId = current.id;
@@ -242,12 +302,10 @@ export class ChatService {
     });
     this.plugin.notifyStateChanged();
 
-    const assistantResponse = await this.generateStructuredAssistantResponse(sourcePrompt);
-    const assistantText = assistantResponse.answerMarkdown;
     const assistantMessage: ThreadMessage = {
       id: makeId("message"),
       role: "assistant",
-      content: assistantText,
+      content: "",
       createdAt: nowIso(),
       captureEventId: null
     };
@@ -258,6 +316,45 @@ export class ChatService {
         return;
       }
       current.messages = [userMessage, assistantMessage];
+      current.title = item.label;
+      current.updatedAt = assistantMessage.createdAt;
+      state.latestThreadId = current.id;
+    });
+    this.beginStreamingState(threadId, assistantMessage.id, item.label);
+
+    let assistantResponse: StructuredChatResponse;
+    try {
+      assistantResponse = await this.generateStructuredAssistantResponse(sourcePrompt, {
+        threadId,
+        assistantMessageId: assistantMessage.id
+      });
+    } catch (error) {
+      this.clearStreamingState(threadId, false);
+      await this.plugin.store.updateState((state) => {
+        const current = state.threads.find((candidate) => candidate.id === threadId);
+        if (!current) {
+          return;
+        }
+        current.messages = [userMessage];
+        current.title = item.label;
+        current.updatedAt = userMessage.createdAt;
+        state.latestThreadId = current.id;
+      });
+      this.plugin.notifyStateChanged();
+      throw error;
+    }
+    const assistantText = assistantResponse.answerMarkdown;
+    this.clearStreamingState(threadId, false);
+
+    await this.plugin.store.updateState((state) => {
+      const current = state.threads.find((candidate) => candidate.id === threadId);
+      if (!current) {
+        return;
+      }
+      const currentAssistantMessage = current.messages.find((candidate) => candidate.id === assistantMessage.id);
+      if (currentAssistantMessage) {
+        currentAssistantMessage.content = assistantText;
+      }
       current.title = assistantResponse.itemLabel || item.label;
       current.updatedAt = assistantMessage.createdAt;
       state.latestThreadId = current.id;
@@ -976,7 +1073,7 @@ export class ChatService {
       return null;
     }
 
-    return this.plugin.itemStorage.findBestItemMatch(inferredExpression);
+    return this.plugin.itemStorage.findReusableItemMatch(inferredExpression);
   }
 
   private shouldUseSavedResult(userMessage: string, item: LearningItemIndexEntry): boolean {
@@ -995,7 +1092,7 @@ export class ChatService {
       return true;
     }
 
-    const matchedItem = this.plugin.itemStorage.findBestItemMatch(inferredExpression);
+    const matchedItem = this.plugin.itemStorage.findReusableItemMatch(inferredExpression);
     if (matchedItem?.id === item.id) {
       return true;
     }
@@ -1077,7 +1174,7 @@ export class ChatService {
       }
     }
 
-    return this.plugin.itemStorage.findBestItemMatch(thread.title);
+    return this.plugin.itemStorage.findReusableItemMatch(thread.title);
   }
 
   private async resolveThreadForMessage(
@@ -1134,7 +1231,10 @@ export class ChatService {
     return LOOKUP_CUE_PATTERNS.some((pattern) => pattern.test(value));
   }
 
-  private async generateStructuredAssistantResponse(userContent: string): Promise<StructuredChatResponse> {
+  private async generateStructuredAssistantResponse(
+    userContent: string,
+    streamTarget?: { threadId: string; assistantMessageId: string }
+  ): Promise<StructuredChatResponse> {
     const provider = this.plugin.getProvider();
     const prompt = getActivePromptProfile(
       this.plugin.store.settings.prompts.profiles,
@@ -1144,15 +1244,18 @@ export class ChatService {
     const explanationLanguage = this.plugin.store.settings.defaultExplanationLanguage;
     const baseSystemPrompt = `${prompt.systemPrompt}
 
-Return JSON only. Do not wrap the JSON in markdown fences.
-Every key in the required JSON shape must be present. Use empty strings or empty arrays instead of omitting keys.`;
-    const buildMessages = (retry: boolean, lastRaw = "") => [
+Return only the tagged envelope described by the user prompt.
+Do not use JSON.
+Do not wrap the response in markdown fences.`;
+    const buildMessages = (retry: boolean, lastRaw = "", lastError = "") => [
       {
         role: "system" as const,
         content: retry
           ? `${baseSystemPrompt}
 
-Your previous response did not match the required JSON format. Return valid JSON only. Ensure itemLabel, primaryExpression, and answerMarkdown are present.`
+Your previous response did not match the required tagged format or content requirements. Return the tagged format only.
+Ensure REQUEST_KIND, ITEM_LABEL, PRIMARY_EXPRESSION, SOURCE_LANGUAGE, TARGET_LANGUAGE, ITEM_TYPE, RELATED_EXPRESSIONS, and ANSWER are all present.
+ANSWER must be a complete tutor answer, not a placeholder like "...".`
           : baseSystemPrompt
       },
       {
@@ -1160,33 +1263,278 @@ Your previous response did not match the required JSON format. Return valid JSON
         content: retry && lastRaw.trim()
           ? `${buildStructuredChatUserPrompt(userContent, explanationLanguage)}
 
+Why the previous response was invalid:
+${lastError || "It did not satisfy the JSON/content requirements."}
+
 Your previous invalid response was:
 ${lastRaw}
 
-Return the same content rewritten as valid JSON only.`
+Return the same content rewritten using the exact tagged format only.`
           : buildStructuredChatUserPrompt(userContent, explanationLanguage)
       }
     ];
 
     try {
       let lastRaw = "";
+      let lastError = "";
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        const raw = await provider.sendChat(buildMessages(attempt > 0, lastRaw), {
-          temperature: this.plugin.store.settings.provider.temperature
+        const raw = await provider.sendChat(buildMessages(attempt > 0, lastRaw, lastError), {
+          temperature: this.plugin.store.settings.provider.temperature,
+          maxTokens: 2400,
+          onChunk:
+            streamTarget && attempt === 0
+              ? (_chunk, fullText) => {
+                  this.updateStreamingState(streamTarget.threadId, streamTarget.assistantMessageId, fullText);
+                }
+              : undefined
         });
         lastRaw = raw;
-        const parsed = normalizeStructuredChatResponse(parseJsonObject<Partial<StructuredChatResponse>>(raw));
-        if (parsed.answerMarkdown && (parsed.primaryExpression || parsed.itemLabel)) {
+        let parsed: StructuredChatResponse;
+        try {
+          parsed = this.parseStructuredAssistantEnvelope(raw);
+        } catch (error) {
+          lastError = this.describeStructuredParseError(error);
+          continue;
+        }
+        const validationError = this.validateStructuredAssistantResponse(parsed, userContent);
+        if (!validationError) {
           return {
             ...parsed,
             primaryExpression: parsed.primaryExpression || parsed.itemLabel
           };
         }
+        lastError = validationError;
       }
-      throw new Error("Chat response did not match the required format.");
+      throw new Error(
+        lastError
+          ? `The model kept returning invalid structured output after 3 attempts. ${lastError}`
+          : "The model kept returning invalid structured output after 3 attempts."
+      );
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Chat request failed.");
       throw error;
     }
+  }
+
+  private updateStreamingState(threadId: string, assistantMessageId: string, raw: string): void {
+    const partial = this.parseStructuredAssistantEnvelopePartial(raw);
+    this.streamingByThread.set(threadId, {
+      assistantMessageId,
+      raw,
+      content: partial.answerMarkdown || "",
+      label: partial.itemLabel || this.streamingByThread.get(threadId)?.label || ""
+    });
+    this.notifyStreamingProgress();
+  }
+
+  private clearStreamingState(threadId: string, notify = true): void {
+    if (!this.streamingByThread.has(threadId)) {
+      return;
+    }
+    this.streamingByThread.delete(threadId);
+    if (notify) {
+      this.plugin.notifyStateChanged();
+    }
+  }
+
+  private notifyStreamingProgress(): void {
+    const now = Date.now();
+    if (now - this.lastStreamNotifyAt < 80) {
+      return;
+    }
+    this.lastStreamNotifyAt = now;
+    this.plugin.notifyStateChanged();
+  }
+
+  private parseStructuredAssistantEnvelope(raw: string): StructuredChatResponse {
+    const normalized = raw.replace(/\r\n/g, "\n").trim();
+    const answerHeader = normalized.match(/(?:^|\n)ANSWER:\s*\n?/i);
+    if (!answerHeader || answerHeader.index == null) {
+      throw new Error("Missing ANSWER field.");
+    }
+
+    const metadataBlock = normalized.slice(0, answerHeader.index).trim();
+    const answerMarkdown = normalized.slice(answerHeader.index + answerHeader[0].length).trim();
+    if (!metadataBlock) {
+      throw new Error("Missing structured metadata fields.");
+    }
+
+    const fields = new Map<string, string>();
+    for (const line of metadataBlock.split("\n").map((value) => value.trim()).filter(Boolean)) {
+      const match = line.match(/^([A-Z_]+):\s*(.*)$/);
+      if (!match?.[1]) {
+        throw new Error(`Malformed structured line: ${line}`);
+      }
+      fields.set(match[1], (match[2] ?? "").trim());
+    }
+
+    const relatedExpressions = this.parseStructuredListField(fields.get("RELATED_EXPRESSIONS") ?? "");
+    return normalizeStructuredChatResponse({
+      requestKind: fields.get("REQUEST_KIND") as StructuredChatResponse["requestKind"] | undefined,
+      itemLabel: fields.get("ITEM_LABEL"),
+      primaryExpression: fields.get("PRIMARY_EXPRESSION"),
+      answerMarkdown,
+      relatedExpressions,
+      sourceLanguage: fields.get("SOURCE_LANGUAGE"),
+      targetLanguage: fields.get("TARGET_LANGUAGE"),
+      itemType: fields.get("ITEM_TYPE") as StructuredChatResponse["itemType"] | undefined
+    });
+  }
+
+  private parseStructuredAssistantEnvelopePartial(raw: string): Partial<StructuredChatResponse> {
+    const normalized = raw.replace(/\r\n/g, "\n");
+    const itemLabel = this.matchStructuredField(normalized, "ITEM_LABEL");
+    const primaryExpression = this.matchStructuredField(normalized, "PRIMARY_EXPRESSION");
+    const requestKind = this.matchStructuredField(normalized, "REQUEST_KIND");
+    const sourceLanguage = this.matchStructuredField(normalized, "SOURCE_LANGUAGE");
+    const targetLanguage = this.matchStructuredField(normalized, "TARGET_LANGUAGE");
+    const itemType = this.matchStructuredField(normalized, "ITEM_TYPE");
+    const relatedExpressions = this.parseStructuredListField(this.matchStructuredField(normalized, "RELATED_EXPRESSIONS"));
+    const answerMatch = normalized.match(/(?:^|\n)ANSWER:\s*\n?/i);
+    const answerMarkdown =
+      answerMatch && answerMatch.index != null
+        ? normalized.slice(answerMatch.index + answerMatch[0].length).trimStart()
+        : "";
+
+    return normalizeStructuredChatResponse({
+      requestKind: requestKind as StructuredChatResponse["requestKind"] | undefined,
+      itemLabel,
+      primaryExpression,
+      answerMarkdown,
+      relatedExpressions,
+      sourceLanguage,
+      targetLanguage,
+      itemType: itemType as StructuredChatResponse["itemType"] | undefined
+    });
+  }
+
+  private matchStructuredField(raw: string, field: string): string {
+    const pattern = new RegExp(`(?:^|\\n)${field}:\\s*(.+?)(?=\\n[A-Z_]+:|\\nANSWER:|$)`, "is");
+    return raw.match(pattern)?.[1]?.trim() ?? "";
+  }
+
+  private parseStructuredListField(value: string): string[] {
+    const trimmed = value.trim();
+    if (!trimmed || /^none$/i.test(trimmed)) {
+      return [];
+    }
+
+    return trimmed
+      .split(/\s*\|\s*/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  private describeStructuredParseError(error: unknown): string {
+    if (!(error instanceof Error)) {
+      return "The tagged response could not be parsed.";
+    }
+
+    const message = error.message.trim();
+    if (!message) {
+      return "The tagged response could not be parsed.";
+    }
+
+    return `The tagged response could not be parsed: ${message}`;
+  }
+
+  private validateStructuredAssistantResponse(
+    response: StructuredChatResponse,
+    userContent: string
+  ): string | null {
+    if (response.requestKind === "other" && this.isDirectLookupRequest(userContent)) {
+      return "requestKind was too vague for a direct lookup-style request.";
+    }
+
+    if (!response.itemLabel.trim() && !response.primaryExpression.trim()) {
+      return "itemLabel and primaryExpression were both empty.";
+    }
+
+    const answerPlain = this.normalizeAssistantAnswerForValidation(response.answerMarkdown);
+    if (!answerPlain) {
+      return "answerMarkdown was empty.";
+    }
+
+    if (/^(?:\.{2,}|…+|n\/a|null|unknown|tbd)$/i.test(answerPlain)) {
+      return 'answerMarkdown was only a placeholder like "...".';
+    }
+
+    if (!/[A-Za-z\p{Script=Han}]/u.test(answerPlain)) {
+      return "answerMarkdown did not contain real language content.";
+    }
+
+    if (this.isDirectLookupRequest(userContent) && answerPlain.length < 28) {
+      return "answerMarkdown was too short for a real lookup answer.";
+    }
+
+    const resolved = response.primaryExpression.trim() || response.itemLabel.trim();
+    if (resolved && response.requestKind === "translation") {
+      const normalizedResolved = normalizeExpression(resolved);
+      const normalizedAnswer = normalizeExpression(answerPlain);
+      if (!normalizedAnswer.includes(normalizedResolved)) {
+        return "answerMarkdown did not mention the resolved target expression.";
+      }
+    }
+
+    if (this.shouldRequireIpa(userContent, response) && !this.hasInlineHeadwordWithAnnotations(response.answerMarkdown, resolved)) {
+      return 'answerMarkdown did not start with the single-word format "<term> /.../ adj.|vt.|vi.|...".';
+    }
+
+    return null;
+  }
+
+  private normalizeAssistantAnswerForValidation(markdown: string): string {
+    return markdown
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/[*_`>#-]+/g, " ")
+      .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private shouldRequireIpa(userContent: string, response: StructuredChatResponse): boolean {
+    if (!["lookup", "translation", "correction"].includes(response.requestKind)) {
+      return false;
+    }
+
+    const resolved = this.cleanExpression(
+      response.primaryExpression.trim() || response.itemLabel.trim() || this.inferLookupExpression(userContent)
+    );
+    if (!resolved || looksLikeContrast(resolved, userContent)) {
+      return false;
+    }
+
+    return this.isSingleWordExpression(resolved);
+  }
+
+  private isSingleWordExpression(value: string): boolean {
+    const normalized = value
+      .trim()
+      .replace(/[()[\]{}]/g, " ")
+      .replace(/\s+/g, " ");
+    if (!normalized) {
+      return false;
+    }
+
+    return normalized.split(" ").length === 1;
+  }
+
+  private hasInlineHeadwordWithAnnotations(markdown: string, resolved: string): boolean {
+    const firstLine = markdown.replace(/\r\n/g, "\n").split("\n")[0]?.trim() ?? "";
+    if (!firstLine || !resolved.trim()) {
+      return false;
+    }
+
+    const normalizedFirstLine = normalizeExpression(firstLine);
+    const normalizedResolved = normalizeExpression(resolved);
+    if (!normalizedFirstLine.includes(normalizedResolved)) {
+      return false;
+    }
+
+    if (!/\/[^/\n]{2,120}\//.test(firstLine)) {
+      return false;
+    }
+
+    return /\b(?:n|v|vt|vi|adj|adv|prep|pron|conj|interj|det|aux|modal|phr)\./i.test(firstLine);
   }
 }

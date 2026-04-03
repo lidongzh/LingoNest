@@ -64,6 +64,8 @@ export class ItemBrowserView extends ItemView {
     }
     containerEl.empty();
     containerEl.addClass("lingonest-view");
+    containerEl.style.setProperty("--lingonest-ui-font-size", `${this.plugin.store.settings.uiFontSize}px`);
+    containerEl.style.setProperty("--lingonest-ui-scale", String(this.plugin.store.settings.uiFontSize / 14));
 
     const wrapper = containerEl.createDiv({ cls: "lingonest-review-layout lingonest-item-browser-layout" });
     renderSectionNav(wrapper, this.plugin, "items");

@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: LingoNestSettings = {
   defaultExplanationLanguage: "English",
   autoSave: true,
   chatSidebarWidth: 280,
+  uiFontSize: 14,
   prompts: {
     profiles: createDefaultPromptProfiles(),
     activeProfileIds: {

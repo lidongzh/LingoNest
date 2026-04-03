@@ -36,7 +36,11 @@ export abstract class AbstractProvider implements LLMProvider {
   abstract readonly kind: ProviderKind;
 
   async sendChat(messages: LLMChatMessage[], options?: SendChatOptions): Promise<string> {
-    return this.complete(messages, options);
+    const text = await this.complete(messages, options);
+    if (options?.onChunk) {
+      await options.onChunk(text, text);
+    }
+    return text;
   }
 
   async extractCandidate(context: CaptureContext, request: ProviderRequestContext): Promise<CaptureCandidate> {
@@ -178,7 +182,7 @@ function buildFallbackClozeExercise(item: LearningItem): ReviewExercise {
       const clozeSentence = clozeExample.replace(new RegExp(escapeRegExp(answer), "i"), "____");
       return {
         type: "cloze",
-        prompt: "Choose the better word for this sentence.",
+        prompt: "Type the better word for this sentence.",
         expectedAnswer: answer,
         hints: [item.chineseMeaning, item.meaning].filter(Boolean),
         clozeSentence,
@@ -212,7 +216,7 @@ function buildFallbackClozeExercise(item: LearningItem): ReviewExercise {
 
   return {
     type: "cloze",
-    prompt: `Choose the best expression to complete the sentence.`,
+    prompt: `Type the best expression to complete the sentence.`,
     expectedAnswer: item.term,
     hints: [item.chineseMeaning, item.meaning].filter(Boolean),
     clozeSentence,
@@ -226,8 +230,8 @@ function defaultPromptFor(type: ReviewExerciseType, item: LearningItem): string 
   switch (type) {
     case "cloze":
       return itemType === "contrast"
-        ? "Choose the better expression to complete the sentence."
-        : "Choose the best expression to complete the sentence.";
+        ? "Type the better expression to complete the sentence."
+        : "Type the best expression to complete the sentence.";
     case "fix-sentence":
       return itemType === "contrast"
         ? `Fix the sentence by choosing the better contrast term.`

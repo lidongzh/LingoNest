@@ -1,6 +1,7 @@
 import { ItemView, Notice, type EventRef, type WorkspaceLeaf } from "obsidian";
 import type { LingoNestPlugin } from "../main";
-import type { ReviewExercise, ReviewGrade, ReviewQueueKind } from "../types";
+import type { ReviewExercise, ReviewGrade, ReviewQueueKind, TypedReviewAssessment } from "../types";
+import { normalizeExpression } from "../utils/strings";
 import { getReviewStepLabel } from "../review/scheduler";
 import { formatRelativeDate } from "../utils/date";
 import { capitalizeLabel } from "../utils/strings";
@@ -23,7 +24,7 @@ export class ReviewView extends ItemView {
   private revealed = false;
   private loading = false;
   private answerDraft = "";
-  private selectedChoice = "";
+  private autoAssessment: TypedReviewAssessment | null = null;
   private stateRef: EventRef | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: LingoNestPlugin) {
@@ -66,7 +67,7 @@ export class ReviewView extends ItemView {
     this.repeatedLaterCount = 0;
     this.revealed = false;
     this.answerDraft = "";
-    this.selectedChoice = "";
+    this.autoAssessment = null;
     await this.loadCurrentExercise();
   }
 
@@ -90,7 +91,7 @@ export class ReviewView extends ItemView {
       };
       this.revealed = false;
       this.answerDraft = "";
-      this.selectedChoice = "";
+      this.autoAssessment = null;
     } catch {
       this.sessionItemIds.shift();
       if (this.sessionItemIds.length) {
@@ -107,6 +108,8 @@ export class ReviewView extends ItemView {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("lingonest-view");
+    containerEl.style.setProperty("--lingonest-ui-font-size", `${this.plugin.store.settings.uiFontSize}px`);
+    containerEl.style.setProperty("--lingonest-ui-scale", String(this.plugin.store.settings.uiFontSize / 14));
     const wrapper = containerEl.createDiv({ cls: "lingonest-review-layout" });
     renderSectionNav(wrapper, this.plugin, "review");
     wrapper.createEl("h3", { text: "Flashcard Session" });
@@ -192,16 +195,35 @@ export class ReviewView extends ItemView {
       const sentence = card.createDiv({ cls: "lingonest-review-cloze-sentence" });
       sentence.setText(this.current.exercise.clozeSentence);
 
+      const entry = card.createDiv({ cls: "lingonest-review-cloze-entry" });
+      const answerInput = entry.createEl("input", {
+        cls: "lingonest-review-cloze-input",
+        attr: {
+          type: "text",
+          placeholder: "Type the best candidate."
+        }
+      });
+      answerInput.value = this.answerDraft;
+      answerInput.disabled = this.revealed;
+      answerInput.addEventListener("input", () => {
+        this.answerDraft = answerInput.value;
+      });
+      answerInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !this.revealed) {
+          event.preventDefault();
+          void this.checkTypedCloze();
+        }
+      });
+
       if (this.current.exercise.choices.length) {
         const choiceGrid = card.createDiv({ cls: "lingonest-review-choices" });
         for (const choice of this.current.exercise.choices) {
           const choiceButton = choiceGrid.createEl("button", {
-            cls: choice === this.selectedChoice ? "is-active" : "",
+            cls: normalizeExpression(choice) === normalizeExpression(this.answerDraft) ? "is-active" : "",
             text: choice
           });
           choiceButton.disabled = this.revealed;
           choiceButton.addEventListener("click", () => {
-            this.selectedChoice = choice;
             this.answerDraft = choice;
             void this.refresh();
           });
@@ -220,9 +242,22 @@ export class ReviewView extends ItemView {
     }
 
     const controls = card.createDiv({ cls: "lingonest-review-controls" });
-    const reveal = controls.createEl("button", { text: this.revealed ? "Answer revealed" : "Reveal answer" });
+    const reveal = controls.createEl("button", {
+      text:
+        this.current.exercise.type === "cloze"
+          ? this.revealed
+            ? "Checked"
+            : "Check answer"
+          : this.revealed
+            ? "Answer revealed"
+            : "Reveal answer"
+    });
     reveal.disabled = this.revealed;
     reveal.addEventListener("click", async () => {
+      if (this.current?.exercise.type === "cloze") {
+        await this.checkTypedCloze();
+        return;
+      }
       this.revealed = true;
       await this.refresh();
     });
@@ -237,13 +272,15 @@ export class ReviewView extends ItemView {
       answerBlock.createEl("strong", { text: "Answer" });
       answerBlock.createEl("p", { text: this.current.exercise.expectedAnswer });
 
-      if (this.current.exercise.type === "cloze" && this.selectedChoice) {
+      if (this.current.exercise.type === "cloze" && this.autoAssessment) {
+        const assessment = this.autoAssessment;
+        answerBlock.createDiv({
+          cls: `lingonest-review-auto-result is-${assessment.verdict}`,
+          text: `${assessment.message} Scheduled as ${labelGrade(assessment.grade)}.`
+        });
         answerBlock.createEl("p", {
           cls: "lingonest-review-user-answer",
-          text:
-            this.selectedChoice === this.current.exercise.expectedAnswer
-              ? `Your choice: ${this.selectedChoice} (correct)`
-              : `Your choice: ${this.selectedChoice}`
+          text: `Your answer: ${this.answerDraft.trim() || "—"}`
         });
       } else if (this.answerDraft.trim()) {
         answerBlock.createEl("p", {
@@ -263,6 +300,31 @@ export class ReviewView extends ItemView {
         }
       }
 
+      if (this.current.exercise.type === "cloze" && this.autoAssessment) {
+        const autoActions = card.createDiv({ cls: "lingonest-review-auto-actions" });
+        const continueButton = autoActions.createEl("button", {
+          cls: "lingonest-review-auto-continue",
+          text: `Continue with ${labelGrade(this.autoAssessment.grade)}`
+        });
+        continueButton.addEventListener("click", async () => {
+          try {
+            await this.plugin.reviewService.gradeExercise(item.id, this.current!.exercise, this.autoAssessment!.grade, {
+              userAnswer: this.answerDraft,
+              gradingSource: "auto-typed"
+            });
+            await this.advanceSession(this.autoAssessment!.grade);
+            await this.refresh();
+          } catch (error) {
+            new Notice(error instanceof Error ? error.message : "Failed to save review result.");
+          }
+        });
+
+        card.createDiv({
+          cls: "lingonest-review-help",
+          text: "Typed cloze answers are graded automatically. If the result looks wrong, override it below."
+        });
+      }
+
       const grading = card.createDiv({ cls: "lingonest-review-grading" });
       for (const grade of ["again", "hard", "good", "easy"] as ReviewGrade[]) {
         const gradeButton = grading.createEl("button", {
@@ -273,7 +335,10 @@ export class ReviewView extends ItemView {
         gradeButton.createSpan({ cls: "lingonest-review-grade-desc", text: gradeHint(grade) });
         gradeButton.addEventListener("click", async () => {
           try {
-            await this.plugin.reviewService.gradeExercise(item.id, this.current!.exercise, grade);
+            await this.plugin.reviewService.gradeExercise(item.id, this.current!.exercise, grade, {
+              userAnswer: this.current?.exercise.type === "cloze" ? this.answerDraft : undefined,
+              gradingSource: "manual"
+            });
             await this.advanceSession(grade);
             await this.refresh();
           } catch (error) {
@@ -315,6 +380,20 @@ export class ReviewView extends ItemView {
     }
     this.sessionItemIds.push(currentId);
     await this.loadCurrentExercise();
+  }
+
+  private async checkTypedCloze(): Promise<void> {
+    if (!this.current || this.current.exercise.type !== "cloze") {
+      return;
+    }
+    if (!this.answerDraft.trim()) {
+      new Notice("Type an answer first.");
+      return;
+    }
+
+    this.autoAssessment = this.plugin.reviewService.assessTypedClozeAnswer(this.current.exercise, this.answerDraft);
+    this.revealed = true;
+    await this.refresh();
   }
 }
 

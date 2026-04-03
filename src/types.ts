@@ -22,8 +22,10 @@ export type ItemType =
 export type ReviewExerciseType = "standard" | "cloze" | "fix-sentence" | "use-in-reply";
 export type ReviewQueueKind = "due" | "new" | "trouble" | "recent";
 export type ReviewGrade = "again" | "hard" | "good" | "easy";
+export type ReviewGradingSource = "manual" | "auto-typed";
 export type CaptureState = "provisional" | "confirmed";
 export type StructuredUpdateSource = "exchange-auto" | "exchange-manual" | "thread-summary";
+export type StructuredRequestKind = "translation" | "lookup" | "contrast" | "grammar" | "correction" | "usage" | "other";
 
 export interface PromptProfile {
   id: string;
@@ -58,6 +60,7 @@ export interface LingoNestSettings {
   defaultExplanationLanguage: string;
   autoSave: boolean;
   chatSidebarWidth: number;
+  uiFontSize: number;
   prompts: PromptSettings;
 }
 
@@ -70,6 +73,7 @@ export interface SendChatOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  onChunk?: (chunk: string, fullText: string) => void | Promise<void>;
 }
 
 export interface CaptureContext {
@@ -233,6 +237,8 @@ export interface ReviewEvent {
   itemId: string;
   createdAt: string;
   grade: ReviewGrade;
+  gradingSource?: ReviewGradingSource;
+  userAnswer?: string | null;
   exerciseType: ReviewExerciseType;
   prompt: string;
   expectedAnswer: string;
@@ -283,7 +289,15 @@ export interface ReviewExerciseResponse {
   exercise: ReviewExercise;
 }
 
+export interface TypedReviewAssessment {
+  verdict: "correct" | "close" | "incorrect";
+  grade: ReviewGrade;
+  matchedAnswer: string;
+  message: string;
+}
+
 export interface StructuredChatResponse {
+  requestKind: StructuredRequestKind;
   itemLabel: string;
   primaryExpression: string;
   answerMarkdown: string;
